@@ -6,8 +6,7 @@ Develop a Reinforcement Learning algorithm on strategy games.
 
 To run,
 
-```python
-game.py
+```python game-fall23.py
 ```
 
 ## How to Play
