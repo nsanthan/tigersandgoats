@@ -203,6 +203,7 @@ class Game():
                         self.phase = 'place'
                         game.goatCount = self.movecount
                     else:
+                        game.goatCount = 15
                         self.phase = 'move'
                 self.goatturn = not self.goatturn
                 game.gameBoard.turnDisplay()
@@ -254,6 +255,13 @@ class Game():
         for player in self.players:
             player.reset()
 
+    def checkmove(self, returnedtuple):
+        ''' Checks if player returned a move in the valid format. '''
+        if returnedtuple != None:
+            if len(returnedtuple) ==3:
+                return returnedtuple
+        return None, None, None
+            
     def gamelogic(self):
         ''' If Player needs input, must return 'wait' on call to predict.
         Else, Player returns a move.'''
@@ -270,7 +278,9 @@ class Game():
                 self.state.update(self)
             else:
                 print('Not waiting on input...')
-                movefunc, piece, dest = player.predict()
+                returnedtuple = player.predict()
+                movefunc, piece, dest = self.checkmove(returnedtuple)
+                
                 if movefunc != None and piece.identity() == self.state.playerturn():
                     piece = movefunc(dest)
                     print(piece)
@@ -302,7 +312,9 @@ class Game():
             # function called with an input
             # pass the input to the appropriate player
             # need stronger checks to make sure function returns what is expected
-            movefunc, piece, dest = self.players[self.state.booleanturn()].input(position=position)
+
+            returnedtuple = self.players[self.state.booleanturn()].input(position=position)
+            movefunc, piece, dest = self.checkmove(returnedtuple)
             if not piece:
                 self.players[self.state.booleanturn()].reset()
             else:
