@@ -63,19 +63,15 @@ class Player():
             piece = self.positionone.content
             if piece != None:
                 print('Clicked on a ',piece.identity())
-                if piece.identity() == self.identity():
-                    print('Lifting piece..')
-                    func = piece.lift
-                    self.waitingoninput = True
-                    return func, piece, piece.position
-                else:
-                    print('Choose a', self.playeridentity, ' to move!')
-                    self.positionone = None
-                    self.positiontwo = None
-                    self.waitingoninput = True
-                    return None, None, None
             else:
                 print('Clicked on an empty square')
+            if piece.identity() == self.identity():
+                print('Lifting piece..')
+                func = piece.lift
+                self.waitingoninput = True
+                return func, piece, piece.position
+            else:
+                print('Choose a', self.playeridentity, ' to move!')
                 self.positionone = None
                 self.positiontwo = None
                 self.waitingoninput = True
@@ -284,6 +280,7 @@ class Game():
                 print('Not waiting on input...')
                 returnedtuple = player.predict()
                 movefunc, piece, dest = self.checkmove(returnedtuple)
+                
                 if movefunc != None and piece.identity() == self.state.playerturn():
                     piece = movefunc(dest)
                     print(piece)
@@ -315,15 +312,7 @@ class Game():
             # function called with an input
             # pass the input to the appropriate player
             # need stronger checks to make sure function returns what is expected
-            if position.content == None:
-                self.players[self.state.booleanturn()].reset()
-                print('Game: clicked on an empty square!')
-                return None
-            elif position.content.identity() != self.state.playerturn():
-                self.players[self.state.booleanturn()].reset()
-                print('Game: clicked on ',position.content.identity(),', but Turn is ',self.state.playerturn())
-                return None
-                
+
             returnedtuple = self.players[self.state.booleanturn()].input(position=position)
             movefunc, piece, dest = self.checkmove(returnedtuple)
             if not piece:
@@ -339,7 +328,6 @@ class Game():
                     else:
                         if movefunc != piece.lift:
                             print('Updating?...')
-                            player.reset()
                         else:
                             print('Lifting piece')
                             self.liftedpiece = piece
