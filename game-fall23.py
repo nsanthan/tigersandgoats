@@ -13,10 +13,12 @@ from tkinter import *
 from tkinter import messagebox
 import os
 import numpy as np
+from numpy import random as npr
 import sys
 from PIL import ImageTk, Image
 from random import randint, choice
 import itertools
+import copy
 
 class Player():
     def __init__(self, game):
@@ -110,23 +112,23 @@ class greedyTiger(Player):
         randomorder = choice(list(itertools.permutations(self.pieces)))
         
         for tiger in randomorder:
-            moves, captures = tiger.allmoves()
+            moves, captures, goats = tiger.allmoves()
             for move in moves:
-                print('Possible moves: ', move[1].position.address,move[2].address)
+                print('Possible moves: ', move[1].position.address,move[2])
 
             for capture in captures:
-                print('Possible captures: ', capture[1].position.address, capture[2].address)
+                print('Possible captures: ', capture[1].position.address, capture[2])
             if captures:
                 onecapture = choice(captures)
-                onecapture[1].lift(onecapture[1].position.address)
-                return onecapture[0], onecapture[1], onecapture[2].address
+                onecapture[1].lift()
+                return onecapture[0], onecapture[1], onecapture[2]
 
         for tiger in randomorder:
-            moves, captures = tiger.allmoves()
+            moves, captures, goats = tiger.allmoves()
             if moves:
                 onemove = choice(moves)
-                onemove[1].lift(onemove[1].position.address)
-                return onemove[0], onemove[1], onemove[2].address
+                onemove[1].lift()
+                return onemove[0], onemove[1], onemove[2]
 
     def reset(self):
         self.positionone = None
@@ -173,7 +175,128 @@ class GoatPlayer(Player):
     def predict(game):
         pass
 
+
+class neuralGoat(Player):
+    ''' Uses a neural network to make moves. '''
+    def __init__(self,game):
+        super().__init__(game)
+        self.playeridentity = "Goat"
+        self.pieces = self.game.goats
+        self.waitingoninput = False
+
+    def reset(self):
+        self.positionone = None
+        self.positiontwo = None
+        self.waitingoninput = False
+
+    def needinput(self):
+        return self.waitingoninput
+
+    def matrix2board(self, matrix):
+        empty = np.array([1,0,0])
+        goat = np.array([0,1,0])
+        tiger = np.array([0,0,1])
+
+        tempBoard = Board(graphics=False)
+        row = 0
+        numgoats = 0
+        numtigers = 0
+        for address in tempBoard.addresslist:
+            if (matrix[row,:] == empty).all():
+               tempBoard.positions[address].content = None
+            elif (matrix[row,:] == goat).all():
+                Goat(tempBoard,numgoats).place(address)
+                numgoats = numgoats + 1
+            elif (matrix[row,:] == tiger).all():
+                Tiger(tempBoard, numtigers).place(address)
+                numtigers = numtigers + 1
+            row = row+1
+        return tempBoard
+        
     
+    def valuefunc(self, matrix):
+        board = self.matrix2board(matrix)
+        tigermobility = 0
+        numcaptures = 0
+        goatsindanger = []
+        unsafe = len(goatsindanger)
+        center = ['b1', 'b2', 'b3', 'b4', 'c1','c2','c3','c4', 'd1','d2','d3','d4','e1','e2','e3','e4']
+        positionadv = 0
+        
+        for address in board.addresslist:
+            position = board.positions[address]
+            if position.content != None:
+                if position.content.identity() == 'Tiger':
+                    moves, captures, goats = position.content.allmoves()
+                    tigermobility = tigermobility + len(moves)
+                    numcaptures = numcaptures + len(captures)
+                    goatsindanger.extend(goats)
+
+        unsafe = len(goatsindanger)
+
+        for address in board.addresslist:
+            position = board.positions[address]
+            if position.content != None:
+                if position.content.identity() == 'Goat':
+                    if position.address in center:
+                        if position.content not in goatsindanger:
+                            positionadv = positionadv + 1
+
+        return - tigermobility - 5*unsafe + positionadv
+
+    def nnvaluefuncb(self, board):
+        pass
+    
+    def move2matrix(self, matrix, move):
+        nextmatrix = copy.deepcopy(matrix)
+        movefunc, piece, address = move
+        empty = np.array([1,0,0])
+        goat = np.array([0,1,0])
+        tiger = np.array([0,0,1])
+        
+        if movefunc == piece.place:
+            row = self.board.addresslist.index(address)
+            nextmatrix[row,:] = goat
+        elif movefunc == piece.move:
+            row1 = self.board.addresslist.index(piece.position.address)
+            row2 = self.board.addresslist.index(address)
+            nextmatrix[row1,:] = empty
+            nextmatrix[row2,:] = goat
+
+        return nextmatrix
+
+    def softmax(self, x):
+        return np.exp(x)/np.sum(np.exp(x))
+    
+    def predict(self):
+        currentmatrix = copy.deepcopy(self.game.state.board2matrix(self.board))
+
+        if self.game.state.phase == 'place':
+            for goat in self.pieces:
+                if goat.state == 'Unused':
+                    allmoves = goat.allmoves()
+        elif self.game.state.phase == 'move':
+            allmoves = []
+            for goat in self.pieces:
+                allmoves.extend(goat.allmoves())
+        print('All moves obtained! Possible moves: ', len(allmoves))
+        values = []
+        if len(allmoves) > 25:
+            allmoves = allmoves[:25]
+            
+        for move in allmoves:
+            nextmatrix = self.move2matrix(currentmatrix, move)
+            values.append(self.valuefunc(nextmatrix))
+
+        moveind = npr.choice(np.arange(len(allmoves)), p=self.softmax(values))
+        movefun = allmoves[moveind]
+        if self.game.state.phase == 'place':
+            print('Chosen move: ', movefun[1].position, movefun[2])
+        else:
+            print('Chosen move: ', movefun[1].position.address, movefun[2])
+        return movefun
+                            
+        
 class Game():
     '''This class performs the logic associated with the game: determining whose turn, who won (if any), passing on inputs (if any), making the moves, and keeping track of the state of the game.'''
     class State():
@@ -195,8 +318,19 @@ class Game():
                 return None
         
         def board2matrix(self,gameBoard):
-            pass
-        
+            matrix = np.zeros((23,3))
+            row = 0
+            for key in gameBoard.addresslist:
+                if gameBoard.positions[key].content == None:
+                    matrix[row,:] = np.array([1,0,0])
+                else:
+                    if gameBoard.positions[key].content.identity() == 'Goat' :
+                        matrix[row,:] = np.array([0,1,0])
+                    else:
+                        matrix[row,:] = np.array([0,0,1])
+                row = row +1
+            return matrix
+                    
         def update(self,game):
             self.matrix = self.board2matrix(game.gameBoard)
             self.winner = game.gameover()
@@ -283,12 +417,19 @@ class Game():
             else:
                 print('Not waiting on input...')
                 returnedtuple = player.predict()
-                movefunc, piece, dest = self.checkmove(returnedtuple)
+                movefunc, piece, destaddress = self.checkmove(returnedtuple)
+                print('Returned move: ', piece.position, destaddress)
                 if movefunc != None and piece.identity() == self.state.playerturn():
-                    piece = movefunc(dest)
+                    if movefunc == piece.move:
+                        print('Lifting piece:', piece)
+                        piece.lift()
+                        piece = piece.move(destaddress)
+                    if movefunc == piece.place:
+                        piece = piece.place(destaddress)
+                        
                     print(piece)
                     if not piece:
-                        '''Function did not return anything or
+                        '''Move function did not return anything or
                         wrong type piece chosen'''
                         print('Move error: ',player.identity(),' please make a move manually!')
                         player.waitingoninput = True
@@ -305,7 +446,10 @@ class Game():
                     wrong type piece chosen'''
                     print('Move error: ',player.identity(),' please make a move manually!')
                     player.waitingoninput = True
-            print('Done with one turn')        
+            print('Done with one turn')
+            self.gameBoard.window.update()
+            time.sleep(1)
+        
         
     def input(self,*,position=None):
         print('Pressed button: '+position.address)
@@ -315,23 +459,25 @@ class Game():
             # function called with an input
             # pass the input to the appropriate player
             # need stronger checks to make sure function returns what is expected
-            if position.content == None:
-                self.players[self.state.booleanturn()].reset()
-                print('Game: clicked on an empty square!')
-                return None
-            elif position.content.identity() != self.state.playerturn():
-                self.players[self.state.booleanturn()].reset()
-                print('Game: clicked on ',position.content.identity(),', but Turn is ',self.state.playerturn())
-                return None
+            if self.state.phase == 'move':
+                if position.content == None:
+                    self.players[self.state.booleanturn()].reset()
+                    print('Game: clicked on an empty square!')
+                    return None
+                elif position.content.identity() != self.state.playerturn():
+                    self.players[self.state.booleanturn()].reset()
+                    print('Game: clicked on ',position.content.identity(),', but Turn is ',self.state.playerturn())
+                    return None
+                
                 
             returnedtuple = self.players[self.state.booleanturn()].input(position=position)
-            movefunc, piece, dest = self.checkmove(returnedtuple)
+            movefunc, piece, destaddress = self.checkmove(returnedtuple)
             if not piece:
                 self.players[self.state.booleanturn()].reset()
             else:
                 if movefunc != None and piece.identity() == self.state.playerturn():
                     print('Making move...')
-                    piece = movefunc(dest)
+                    piece = movefunc(destaddress)
                     print('Piece making move:', piece)
                     if not piece:
                         print('Invalid move, try again!')
@@ -504,7 +650,7 @@ class Board():
     A, C = define_geometry(addresslist)
 
     
-    def __init__(self):
+    def __init__(self, graphics=False):
         self.boardPosition = {'b0':'X',
                               'a1':(), 'b1':(), 'c1':'X', 'd1':'X', 'e1':(), 'f1':(),
                               'a2':(), 'b2':(), 'c2':(), 'd2':(), 'e2':(), 'f2':(),
@@ -514,7 +660,9 @@ class Board():
         self.game = None
         self.pieceinmove = None
         self.positions ={}
-        self.window = Tk()
+        self.graphics = graphics
+        if self.graphics:
+            self.window = Tk()
         self.initialize_board()
         for address in self.addresslist:
             self.positions[address] = Position(self,address)
@@ -531,31 +679,32 @@ class Board():
     
     def attachgame(self, game):
         self.game = game
-        self.turnDisplay()
-        self.selectedToggle()
-        self.turnDisp = Label(self.window,
+        if self.graphics:
+            self.turnDisplay()
+            self.selectedToggle()
+            self.turnDisp = Label(self.window,
                               font=(self.font, self.fontsize),
                               textvariable=self.turntext)
-        self.turnDisp.place(x=self.boardSize-100,y= 30)
+            self.turnDisp.place(x=self.boardSize-100,y= 30)
 
-        self.selectedDisp = Label(self.window,
+            self.selectedDisp = Label(self.window,
                                   font=(self.font, self.fontsize),
                                   textvariable=self.selectedBtn)
-        self.selectedDisp.place(x=self.boardSize/2,y= self.boardSize - 30)
+            self.selectedDisp.place(x=self.boardSize/2,y= self.boardSize - 30)
 
-        self.numGoats.set("Number of goats: " + str(game.goatCount+1))        
-        self.goatDisp = Label(self.window,
+            self.numGoats.set("Number of goats: " + str(game.goatCount+1))        
+            self.goatDisp = Label(self.window,
                               font=(self.font, self.fontsize),
                               textvariable=self.numGoats)
-        self.goatDisp.place(x=10,y= 30)
+            self.goatDisp.place(x=10,y= 30)
 
-        self.goatsEatentext.set("Goats eaten: " + str(self.game.goatEaten))        
-        self.goatEatenDisp = Label(self.window,
+            self.goatsEatentext.set("Goats eaten: " + str(self.game.goatEaten))        
+            self.goatEatenDisp = Label(self.window,
                                    font=(self.font, self.fontsize),
                                    textvariable=self.goatsEatentext)
-        self.goatEatenDisp.place(x= 10,y= 60)
-        self.drawlines()
-        self.placebuttons()
+            self.goatEatenDisp.place(x= 10,y= 60)
+            self.drawlines()
+            self.placebuttons()
         
     def neighbors_address(self, address):
         index = self.addresslist.index(address)
@@ -575,19 +724,20 @@ class Board():
     
     def initialize_board(self):
         ''' Sets various parameters needed to draw the board '''
-        self.font = "Helvetica"
-        self.fontsize = 16
+        if self.graphics:
+            self.font = "Helvetica"
+            self.fontsize = 16
 
-        self.window.title('Huligutta (Goats & Tigers)')
-        self.window.geometry('500x500')
-        self.window.resizable(0,0)
+            self.window.title('Huligutta (Goats & Tigers)')
+            self.window.geometry('500x500')
+            self.window.resizable(0,0)
 
-        self.canvas = Canvas(self.window,width=self.boardSize,height=self.boardSize)
-        self.canvas.pack()
-        self.turntext = StringVar()
-        self.selectedBtn = StringVar()
-        self.numGoats = StringVar()
-        self.goatsEatentext = StringVar()
+            self.canvas = Canvas(self.window,width=self.boardSize,height=self.boardSize)
+            self.canvas.pack()
+            self.turntext = StringVar()
+            self.selectedBtn = StringVar()
+            self.numGoats = StringVar()
+            self.goatsEatentext = StringVar()
 
     def drawlines(self):
         self.canvas.create_rectangle(self.boardSize/10,self.boardSize/2 - 70,
@@ -606,16 +756,22 @@ class Board():
                                 self.boardSize/2 + 80,self.boardSize - self.boardSize/10)
         
     def selectedToggle(self):
-        if self.pieceinmove != None:
-            self.selectedBtn.set(self.pieceinmove.identity()+': '+self.pieceinmove.position.address+'-> ?')
+        if self.graphics:
+            if self.pieceinmove != None:
+                self.selectedBtn.set(self.pieceinmove.identity()+': '+self.pieceinmove.position.address+'-> ?')
+            else:
+                self.selectedBtn.set('Select piece')
         else:
-            self.selectedBtn.set('Select piece')
-
+            pass
+        
     def turnDisplay(self):
         # Displays turn as text in the window
-        self.turntext.set(self.game.state.playerturn())
-        self.numGoats.set("Number of goats: " + str(self.game.goatCount))
-        self.goatsEatentext.set("Goats eaten: " + str(self.game.goatEaten))        
+        if self.graphics:
+            self.turntext.set(self.game.state.playerturn())
+            self.numGoats.set("Number of goats: " + str(self.game.goatCount))
+            self.goatsEatentext.set("Goats eaten: " + str(self.game.goatEaten))
+        else:
+            pass
         
     def placebuttons(self):
         self.positions['a1'].button.place(x=self.boardSize/10,
@@ -747,8 +903,10 @@ class Position(Board):
         self.neighbors_address = None
         self.captures = None
         self.captures_address = None
-        self.emptyimage = ImageTk.PhotoImage(file='./images/empty.png') 
-        self.button = Button(self.board.window,
+        self.graphics = board.graphics
+        if self.graphics:
+            self.emptyimage = ImageTk.PhotoImage(file='./images/empty.png',master=self.board.window) 
+            self.button = Button(self.board.window,
                              image=self.emptyimage,
                              command=lambda : self.buttonpress())
         
@@ -762,14 +920,14 @@ class Position(Board):
     def buttonpress(self):
         self.board.game.input(position = self)
         time.sleep(.25)
-
         
     def addpiece(self, piece):
         if self.content == None:
             if piece != None:
                 self.content = piece
-                newimage = piece.returnimage()
-                self.button.config(image=newimage)
+                if self.graphics:
+                    newimage = piece.returnimage()
+                    self.button.config(image=newimage)
                 return piece
             else:
                 print('Tried placing an empty piece')
@@ -799,7 +957,9 @@ class Piece(Board):
         self.board = board
         self.position = None
         self.number = 0
-        self.image = None
+        self.graphics = board.graphics
+        if self.graphics:
+            self.image = None
         self.state = None
         
     def place(self,address):
@@ -832,7 +992,7 @@ class Piece(Board):
     def returnimage(self):
         return self.image
 
-    def lift(self, address):
+    def lift(self):
         ''' Returns self if no other piece is in move, None else.
          Uses the second argument for compatability with other functions,
          the address argument is ignored'''
@@ -845,15 +1005,28 @@ class Piece(Board):
 
     def identity(self):
         return type(self).__name__
-        
+
+
+    def allmoves(self):
+        allmoves = []
+        for position in self.position.neighbors:
+            if position.content == None:
+                allmoves.append([self.move, self, position.address])
+        return allmoves
+
 class Goat(Piece):
     def __init__(self, Board, number):
         super().__init__(Board, number)
-        goat_img = Image.open('./images/goat.png')
-        goat_img = goat_img.resize((30,30),Image.ANTIALIAS)
-        self.image = ImageTk.PhotoImage(goat_img)
+        self.state = 'Unused'
+        if self.graphics:
+            goat_img = Image.open('./images/goat.png')
+            goat_img = goat_img.resize((30,30),Image.ANTIALIAS)
+            self.image = ImageTk.PhotoImage(goat_img,master=self.board.window)
 
-        
+    def place(self,address):
+        self.state = 'Playing'
+        return super().place(address)
+
     def capture(self):
         self.position = None
         self.state = 'Captured'
@@ -876,15 +1049,30 @@ class Goat(Piece):
                 print('Cannot step to ', address)
                 self.place(self.position.address)
                 return None
-                
+
+    def allmoves(self):
+        if self.getstate() == 'Playing':
+            return super().allmoves()
+        if self.getstate() == 'Captured':
+            return []
+        if self.getstate() == 'Unused':
+            ''' We are in the place phase '''
+            allmoves = []
+            for address in self.board.addresslist:
+                if self.board.positions[address].content == None:
+                    allmoves.append([self.place, self, address])
+            return allmoves
+            
+
 
             
 class Tiger(Piece):
     def __init__(self, Board, number):
         super().__init__(Board, number)
-        tiger_img = Image.open('./images/tiger-512.png')
-        tiger_img = tiger_img.resize((30,30),Image.ANTIALIAS)
-        self.image = ImageTk.PhotoImage(tiger_img)
+        if self.graphics:
+            tiger_img = Image.open('./images/tiger-512.png')
+            tiger_img = tiger_img.resize((30,30),Image.ANTIALIAS)
+            self.image = ImageTk.PhotoImage(tiger_img,master=self.board.window)
         
     def capture(self, address):
         ''' Returns goat if capture successful, else returns None'''
@@ -932,32 +1120,33 @@ class Tiger(Piece):
                 return None
 
     def allmoves(self):
-        allmoves = []
+        allmoves = super().allmoves()
         allcaptures = []
+        goats = []
         for position in self.position.neighbors:
-            if position.content == None:
-                allmoves.append([self.move, self, position])
-            elif position.content.identity() == 'Goat':
-                if position.address != 'b0':
-                    '''
-                    b0 can never be the middle position of a capture.
-                    '''
-                    captures = position.neighbors_address.intersection(self.position.captures_address)
-                    if captures:
-                        for p in captures:
-                            ''' captures contains 1 element in this case 
-                            the loop assigns that element to p.  '''
-                            pass
-                        if self.board.positions[p].content == None:
-                            allcaptures.append([self.move, self, self.board.positions[p]])
-        return allmoves, allcaptures
+            if position.content != None:
+                if position.content.identity() == 'Goat':
+                    if position.address!= 'b0':
+                        '''
+                        b0 can never be the middle position of a capture.
+                        '''
+                        captures = position.neighbors_address.intersection(self.position.captures_address)
+                        if captures:
+                            for p in captures:
+                                ''' captures contains 1 element in this case 
+                                the loop assigns that element to p.  '''
+                                pass
+                            if self.board.positions[p].content == None:
+                                allcaptures.append([self.move, self, p])
+                                goats.append(position.content)
+        return allmoves, allcaptures, goats
  
         
 if __name__ == '__main__':
     gameone = Game()
-    boardone = Board()
+    boardone = Board(graphics = True)
     gameone.attachboard(boardone)
     tiger = greedyTiger(gameone)
-    goat = GoatPlayer(gameone)
+    goat = neuralGoat(gameone)
     gameone.addplayers(tiger, goat)
     gameone.gamelogic()
