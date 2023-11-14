@@ -233,7 +233,7 @@ class neuralGoat(Player):
                     goatsindanger.extend(goats)
 
         unsafe = len(goatsindanger)
-
+        
         for address in board.addresslist:
             position = board.positions[address]
             if position.content != None:
@@ -242,7 +242,12 @@ class neuralGoat(Player):
                         if position.content not in goatsindanger:
                             positionadv = positionadv + 1
 
-        return - tigermobility - 5*unsafe + positionadv
+        captured = 0
+        for goat in self.pieces:
+            if goat.state == 'Captured':
+                captured = captured + 1
+
+        return 1/(tigermobility+1e-3) - 3*(captured+unsafe)**2 + 2*positionadv**1.5
 
     def nnvaluefuncb(self, board):
         pass
