@@ -464,16 +464,16 @@ class Game():
             # function called with an input
             # pass the input to the appropriate player
             # need stronger checks to make sure function returns what is expected
-            if self.state.phase == 'move':
-                if position.content == None:
-                    self.players[self.state.booleanturn()].reset()
-                    print('Game: clicked on an empty square!')
-                    return None
-                elif position.content.identity() != self.state.playerturn():
-                    self.players[self.state.booleanturn()].reset()
-                    print('Game: clicked on ',position.content.identity(),', but Turn is ',self.state.playerturn())
-                    return None
-                
+            if self.liftedpiece == None:
+                if self.state.phase == 'move':
+                    if position.content == None:
+                        self.players[self.state.booleanturn()].reset()
+                        print('Game: clicked on an empty square!')
+                        return None
+                    elif position.content.identity() != self.state.playerturn():
+                        self.players[self.state.booleanturn()].reset()
+                        print('Game: clicked on ',position.content.identity(),', but Turn is ',self.state.playerturn())
+                        return None
                 
             returnedtuple = self.players[self.state.booleanturn()].input(position=position)
             movefunc, piece, destaddress = self.checkmove(returnedtuple)
@@ -482,20 +482,24 @@ class Game():
             else:
                 if movefunc != None and piece.identity() == self.state.playerturn():
                     print('Making move...')
-                    piece = movefunc(destaddress)
-                    print('Piece making move:', piece)
+                    if movefunc == piece.lift:
+                        piece = movefunc()
+                        print('Piece making move:', piece)
+                    else:
+                        piece = movefunc(destaddress)
+                        print('Piece making move:', piece)
+
                     if not piece:
                         print('Invalid move, try again!')
                         self.players[self.state.booleanturn()].reset()
                     else:
-                        if movefunc != piece.lift:
-                            print('Updating?...')
-                            player.reset()
-                        else:
+                        if movefunc == piece.lift:
                             print('Lifting piece')
                             self.liftedpiece = piece
                 else:
-                    '''Function did not return anything because wrong type piece chosen'''
+                    '''Function did
+                    not return anything
+                    '''
                     return None
             print('Exiting game:input')
             
@@ -1152,6 +1156,6 @@ if __name__ == '__main__':
     boardone = Board(graphics = True)
     gameone.attachboard(boardone)
     tiger = greedyTiger(gameone)
-    goat = neuralGoat(gameone)
+    goat = GoatPlayer(gameone)
     gameone.addplayers(tiger, goat)
     gameone.gamelogic()
