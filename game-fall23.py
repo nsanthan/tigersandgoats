@@ -20,6 +20,8 @@ from random import randint, choice
 import itertools
 import copy
 
+
+
 class Player():
     def __init__(self, game):
         self.playeridentity = None
@@ -247,7 +249,7 @@ class neuralGoat(Player):
             if goat.state == 'Captured':
                 captured = captured + 1
 
-        return 1/(tigermobility+1e-3) - 3*(captured+unsafe)**2 + 2*positionadv**1.5
+        return 1/(tigermobility+1e-3) - 30*(captured+unsafe)**2 + 2*positionadv**1.5
 
     def nnvaluefuncb(self, board):
         pass
@@ -1156,6 +1158,6 @@ if __name__ == '__main__':
     boardone = Board(graphics = True)
     gameone.attachboard(boardone)
     tiger = greedyTiger(gameone)
-    goat = GoatPlayer(gameone)
+    goat = neuralGoat(gameone)
     gameone.addplayers(tiger, goat)
     gameone.gamelogic()
