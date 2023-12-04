@@ -19,6 +19,7 @@ from PIL import ImageTk, Image
 from random import randint, choice
 import itertools
 import copy
+import pickle
 
 
 
@@ -185,6 +186,10 @@ class neuralGoat(Player):
         self.playeridentity = "Goat"
         self.pieces = self.game.goats
         self.waitingoninput = False
+        self.W = None
+        model_pkl_file = 'nngoat.pkl'
+        with open(model_pkl_file, 'rb') as file:
+            self.W = pickle.load(file)
 
     def reset(self):
         self.positionone = None
@@ -249,11 +254,41 @@ class neuralGoat(Player):
             if goat.state == 'Captured':
                 captured = captured + 1
 
-        return 1/(tigermobility+1e-3) - 30*(captured+unsafe)**2 + 2*positionadv**1.5
+        return 1/(tigermobility+1e-2) - 5*(captured+unsafe)**2 + 2*positionadv**1.5
 
-    def nnvaluefuncb(self, board):
-        pass
-    
+    def layerpredict(self, X, u):
+            w = u.copy()
+            a = np.zeros((X @ w[0]).shape)
+            n = w[1].shape[0]
+            w[1]= w[1].reshape(1,n)
+            a = X@ w[0] + w[1]
+            a = np.where(a>0, a, 0)
+            return a
+
+    def nnvaluefunc(self, matrix):
+        funmatrix = copy.deepcopy(matrix)
+        if self.game.state.phase == 'place':
+            lastrow = np.array([1,0,0]).reshape(1,3)
+        else:
+            lastrow = np.array([0,1,0]).reshape(1,3)
+        captured = 0
+        for goat in self.pieces:
+            if goat.state == 'Captured':
+                captured = captured + 1
+        lastrow[0,2] = captured
+
+        X = np.vstack((funmatrix, lastrow)).ravel()
+        w0 = self.W[0]
+        w1 = self.W[1]
+        w2 = self.W[2]
+        w3 = self.W[3]
+
+        myoutput = self.layerpredict(
+            self.layerpredict(
+                self.layerpredict(X, w0),w1),w2) @ w3[0]+w3[1]
+        return myoutput[0,0]
+        
+        
     def move2matrix(self, matrix, move):
         nextmatrix = copy.deepcopy(matrix)
         movefunc, piece, address = move
@@ -273,7 +308,13 @@ class neuralGoat(Player):
         return nextmatrix
 
     def softmax(self, x):
-        return np.exp(x)/np.sum(np.exp(x))
+        x = np.array(x)/10
+        vector = np.exp(x)/np.sum(np.exp(x))
+        if np.isnan(vector).any():
+            print(x)
+            vector = np.ones(x.shape)
+            vector = vector/len(vector)
+        return vector
     
     def predict(self):
         currentmatrix = copy.deepcopy(self.game.state.board2matrix(self.board))
@@ -293,7 +334,7 @@ class neuralGoat(Player):
             
         for move in allmoves:
             nextmatrix = self.move2matrix(currentmatrix, move)
-            values.append(self.valuefunc(nextmatrix))
+            values.append(self.nnvaluefunc(nextmatrix))
 
         moveind = npr.choice(np.arange(len(allmoves)), p=self.softmax(values))
         movefun = allmoves[moveind]
