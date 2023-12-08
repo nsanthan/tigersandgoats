@@ -254,7 +254,7 @@ class neuralGoat(Player):
             if goat.state == 'Captured':
                 captured = captured + 1
 
-        return 1/(tigermobility+1e-2) - 5*(captured+unsafe)**2 + 2*positionadv**1.5
+        return 1/(tigermobility+1e-2) - 5*(2+captured+unsafe)**2 + 3*(3+positionadv)**1.5
 
     def layerpredict(self, X, u):
             w = u.copy()
@@ -308,7 +308,7 @@ class neuralGoat(Player):
         return nextmatrix
 
     def softmax(self, x):
-        x = np.array(x)/10
+        x = np.array(x)
         vector = np.exp(x)/np.sum(np.exp(x))
         if np.isnan(vector).any():
             print(x)
@@ -329,8 +329,8 @@ class neuralGoat(Player):
                 allmoves.extend(goat.allmoves())
         print('All moves obtained! Possible moves: ', len(allmoves))
         values = []
-        if len(allmoves) > 25:
-            allmoves = allmoves[:25]
+        if len(allmoves) > 50:
+            allmoves = allmoves[:50]
             
         for move in allmoves:
             nextmatrix = self.move2matrix(currentmatrix, move)
@@ -343,7 +343,35 @@ class neuralGoat(Player):
         else:
             print('Chosen move: ', movefun[1].position.address, movefun[2])
         return movefun
-                            
+
+class valueGoat(neuralGoat):
+    def predict(self):
+        currentmatrix = copy.deepcopy(self.game.state.board2matrix(self.board))
+
+        if self.game.state.phase == 'place':
+            for goat in self.pieces:
+                if goat.state == 'Unused':
+                    allmoves = goat.allmoves()
+        elif self.game.state.phase == 'move':
+            allmoves = []
+            for goat in self.pieces:
+                allmoves.extend(goat.allmoves())
+        print('All moves obtained! Possible moves: ', len(allmoves))
+        values = []
+        if len(allmoves) > 50:
+            allmoves = allmoves[:50]
+            
+        for move in allmoves:
+            nextmatrix = self.move2matrix(currentmatrix, move)
+            values.append(self.valuefunc(nextmatrix))
+
+        moveind = npr.choice(np.arange(len(allmoves)), p=self.softmax(values))
+        movefun = allmoves[moveind]
+        if self.game.state.phase == 'place':
+            print('Chosen move: ', movefun[1].position, movefun[2])
+        else:
+            print('Chosen move: ', movefun[1].position.address, movefun[2])
+        return movefun
         
 class Game():
     '''This class performs the logic associated with the game: determining whose turn, who won (if any), passing on inputs (if any), making the moves, and keeping track of the state of the game.'''
@@ -1199,6 +1227,6 @@ if __name__ == '__main__':
     boardone = Board(graphics = True)
     gameone.attachboard(boardone)
     tiger = greedyTiger(gameone)
-    goat = neuralGoat(gameone)
+    goat = valueGoat(gameone)
     gameone.addplayers(tiger, goat)
     gameone.gamelogic()
