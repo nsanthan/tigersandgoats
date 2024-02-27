@@ -137,6 +137,79 @@ class greedyTiger(Player):
         self.positionone = None
         self.positiontwo = None
         self.waitingoninput = False
+
+class greedyGoat(Player):
+    def __init__(self,game):
+        super().__init__(game)
+        self.playeridentity = "Goat"
+        self.pieces = self.game.goats
+        self.waitingoninput = False
+
+    def predict(self):
+        print('Entering greedyGoat:predict')
+
+        remaininggoats = self.pieces.copy()
+        randomorder = []
+        while len(remaininggoats)>0:
+            nextgoat = choice(remaininggoats)
+            remaininggoats.remove(nextgoat)
+            randomorder.append(nextgoat)
+
+        toreturn = [None, None, None]
+            
+        if self.game.state.phase == 'place':
+            for goat in self.pieces:
+                if goat.state == 'Unused':
+                    allmoves = goat.allmoves()
+                    break
+            print(allmoves)
+            if allmoves:
+               onemove = choice(allmoves)
+               print(onemove)
+               toreturn = onemove
+        else:           
+            for goat in randomorder:
+                moves = goat.allmoves()
+                if moves:
+                    onemove = choice(moves)
+                    onemove[1].lift()
+                    toreturn = onemove
+
+        # Check if any goat in danger, if so, ask for human input
+        tigers = self.game.players[0].pieces
+
+        randomorder = choice(list(itertools.permutations(self.game.players[0].pieces)))
+        
+        for tiger in randomorder:
+            moves, captures, goats = tiger.allmoves()
+            for capture in captures:
+                print('Possible captures: ', capture[1].position.address, capture[2])
+            if len(captures)>0:
+                toreturn = [None, None, None]
+        return toreturn[0], toreturn[1], toreturn[2]
+
+    def fit(self):
+        ''' Called only after self.positionone assigned. '''
+        print('Entering Goat.fit()')
+        if self.game.state.getphase() == 'place':
+            print('In place phase')
+            print('Movecount: ', self.game.state.getmovecount())
+            piece = self.pieces[self.game.state.getmovecount()] 
+            func = piece.place
+            dest = self.positionone.address
+            self.waitingoninput = False
+            return func, piece, dest
+        else:
+            print('In move phase')
+            print('Movecount: ', self.game.state.getmovecount())
+            return super().fit()
+
+    def reset(self):
+        self.positionone = None
+        self.positiontwo = None
+        self.waitingoninput = False    
+
+
         
 class TigerPlayer(Player):
     ''' Human input interface '''
@@ -308,7 +381,7 @@ class neuralGoat(Player):
         return nextmatrix
 
     def softmax(self, x):
-        x = np.array(x)
+        x = np.array(x)/10
         vector = np.exp(x)/np.sum(np.exp(x))
         if np.isnan(vector).any():
             print(x)
@@ -345,6 +418,15 @@ class neuralGoat(Player):
         return movefun
 
 class valueGoat(neuralGoat):
+    def softmax(self, x):
+        x = np.array(x)
+        vector = np.exp(x)/np.sum(np.exp(x))
+        if np.isnan(vector).any():
+            print(x)
+            vector = np.ones(x.shape)
+            vector = vector/len(vector)
+        return vector
+
     def predict(self):
         currentmatrix = copy.deepcopy(self.game.state.board2matrix(self.board))
 
@@ -494,7 +576,11 @@ class Game():
                 print('Not waiting on input...')
                 returnedtuple = player.predict()
                 movefunc, piece, destaddress = self.checkmove(returnedtuple)
-                print('Returned move: ', piece.position, destaddress)
+                if piece != None:
+                    print('Returned move: ', piece.position, destaddress)
+                else:
+                    print('Returned move: None, ', destaddress)
+                
                 if movefunc != None and piece.identity() == self.state.playerturn():
                     if movefunc == piece.move:
                         print('Lifting piece:', piece)
@@ -1227,6 +1313,6 @@ if __name__ == '__main__':
     boardone = Board(graphics = True)
     gameone.attachboard(boardone)
     tiger = greedyTiger(gameone)
-    goat = valueGoat(gameone)
+    goat = greedyGoat(gameone)
     gameone.addplayers(tiger, goat)
     gameone.gamelogic()
