@@ -123,14 +123,12 @@ class greedyTiger(Player):
                 print('Possible captures: ', capture[1].position.address, capture[2])
             if captures:
                 onecapture = choice(captures)
-                onecapture[1].lift()
                 return onecapture[0], onecapture[1], onecapture[2]
 
         for tiger in randomorder:
             moves, captures, goats = tiger.allmoves()
             if moves:
                 onemove = choice(moves)
-                onemove[1].lift()
                 return onemove[0], onemove[1], onemove[2]
 
     def reset(self):
@@ -162,7 +160,6 @@ class greedyGoat(Player):
                 if goat.state == 'Unused':
                     allmoves = goat.allmoves()
                     break
-            print(allmoves)
             if allmoves:
                onemove = choice(allmoves)
                print(onemove)
@@ -172,20 +169,25 @@ class greedyGoat(Player):
                 moves = goat.allmoves()
                 if moves:
                     onemove = choice(moves)
-                    onemove[1].lift()
                     toreturn = onemove
-
+                    print(toreturn)
+                    
         # Check if any goat in danger, if so, ask for human input
-        tigers = self.game.players[0].pieces
-
         randomorder = choice(list(itertools.permutations(self.game.players[0].pieces)))
         
         for tiger in randomorder:
             moves, captures, goats = tiger.allmoves()
             for capture in captures:
                 print('Possible captures: ', capture[1].position.address, capture[2])
-            if len(captures)>0:
                 toreturn = [None, None, None]
+        if toreturn[0] != None:
+            if self.game.state.phase == 'place':
+                print('Chosen move: ', toreturn[1].position, toreturn[2])
+            else:
+                print('Chosen move: ', toreturn[1].position.address, toreturn[2])
+        else:
+            print('Falling back on human input')
+
         return toreturn[0], toreturn[1], toreturn[2]
 
     def fit(self):
@@ -207,8 +209,9 @@ class greedyGoat(Player):
     def reset(self):
         self.positionone = None
         self.positiontwo = None
-        self.waitingoninput = False    
-
+        if self.game.state.getmovecount() == 0:
+            self.waitingoninput = False    
+        
 
         
 class TigerPlayer(Player):
@@ -559,8 +562,11 @@ class Game():
         return None, None, None
             
     def gamelogic(self):
-        ''' If Player needs input, must return 'wait' on call to predict.
-        Else, Player returns a move.'''
+        '''
+        If an automatic player needs input, must return 'None' on
+        call to predict.  Else, Player returns a move.
+
+        '''
         while not self.winner:
             player = self.players[self.state.booleanturn()]
             print('Turn: ', player)
@@ -591,23 +597,24 @@ class Game():
                         
                     print(piece)
                     if not piece:
-                        '''Move function did not return anything or
-                        wrong type piece chosen'''
-                        print('Move error: ',player.identity(),' please make a move manually!')
+                        '''Move function did not return anything'''
+                        print('Move', movefunc,' unsuccessful, please make a move manually!')
                         player.waitingoninput = True
                     else:
                         if movefunc != piece.lift:
-                            print('Updating?...')
+                            print(' Moved: ',movefunc, piece)
                             player.reset()
                             self.state.update(self)
                         else:
                             self.liftedpiece = piece
                             print('Lifting piece...', piece)
                 else:
-                    '''Function did not return anything or
-                    wrong type piece chosen'''
-                    print('Move error: ',player.identity(),' please make a move manually!')
+                    '''
+                    Invalid/null move function or wrong type piece chosen
+                    '''
+                    print('Null/invalid move: ', movefunc ,' please make a move manually!')
                     player.waitingoninput = True
+                    
             print('Done with one turn')
             self.gameBoard.window.update()
             time.sleep(1)
@@ -1167,7 +1174,7 @@ class Piece(Board):
             self.board.tomove(self)
             return self
         else:
-            print('Piece already in move, place it first!')
+            print('Piece', self.board.inmove(), 'already in move, place it first!')
 
     def identity(self):
         return type(self).__name__
