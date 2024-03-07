@@ -255,7 +255,7 @@ class GoatPlayer(Player):
         pass
 
 
-class neuralGoat(Player):
+class autoGoat(Player):
     ''' Uses a neural network to make moves. '''
     def __init__(self,game):
         super().__init__(game)
@@ -297,6 +297,108 @@ class neuralGoat(Player):
         return tempBoard
         
     
+    def move2matrix(self, matrix, move):
+        nextmatrix = copy.deepcopy(matrix)
+        movefunc, piece, address = move
+        empty = np.array([1,0,0])
+        goat = np.array([0,1,0])
+        tiger = np.array([0,0,1])
+        
+        if movefunc == piece.place:
+            row = self.board.addresslist.index(address)
+            nextmatrix[row,:] = goat
+        elif movefunc == piece.move:
+            row1 = self.board.addresslist.index(piece.position.address)
+            row2 = self.board.addresslist.index(address)
+            nextmatrix[row1,:] = empty
+            nextmatrix[row2,:] = goat
+
+        return nextmatrix
+
+    def predict(self):
+        pass
+    
+class neuralGoat(autoGoat):
+    def softmax(self, x):
+        x = np.array(x)/10
+        vector = np.exp(x)/np.sum(np.exp(x))
+        if np.isnan(vector).any():
+            print(x)
+            vector = np.ones(x.shape)
+            vector = vector/len(vector)
+        return vector
+
+    def layerpredict(self, X, u):
+            w = u.copy()
+            a = np.zeros((X @ w[0]).shape)
+            n = w[1].shape[0]
+            w[1]= w[1].reshape(1,n)
+            a = X@ w[0] + w[1]
+            a = np.where(a>0, a, 0)
+            return a
+
+    def nnvaluefunc(self, matrix):
+        funmatrix = copy.deepcopy(matrix)
+        if self.game.state.phase == 'place':
+            lastrow = np.array([1,0,0]).reshape(1,3)
+        else:
+            lastrow = np.array([0,1,0]).reshape(1,3)
+        captured = 0
+        for goat in self.pieces:
+            if goat.state == 'Captured':
+                captured = captured + 1
+        lastrow[0,2] = captured
+
+        X = np.vstack((funmatrix, lastrow)).ravel()
+        w0 = self.W[0]
+        w1 = self.W[1]
+        w2 = self.W[2]
+        w3 = self.W[3]
+
+        myoutput = self.layerpredict(
+            self.layerpredict(
+                self.layerpredict(X, w0),w1),w2) @ w3[0]+w3[1]
+        return myoutput[0,0]
+
+    def predict(self):
+        currentmatrix = copy.deepcopy(self.game.state.board2matrix(self.board))
+
+        if self.game.state.phase == 'place':
+            for goat in self.pieces:
+                if goat.state == 'Unused':
+                    allmoves = goat.allmoves()
+        elif self.game.state.phase == 'move':
+            allmoves = []
+            for goat in self.pieces:
+                allmoves.extend(goat.allmoves())
+        print('All moves obtained! Possible moves: ', len(allmoves))
+        values = []
+        if len(allmoves) > 50:
+            allmoves = allmoves[:50]
+            
+        for move in allmoves:
+            nextmatrix = self.move2matrix(currentmatrix, move)
+            values.append(self.nnvaluefunc(nextmatrix))
+
+        moveind = npr.choice(np.arange(len(allmoves)), p=self.softmax(values))
+        movefun = allmoves[moveind]
+        if self.game.state.phase == 'place':
+            print('Chosen move: ', movefun[1].position, movefun[2])
+        else:
+            print('Chosen move: ', movefun[1].position.address, movefun[2])
+        return movefun
+
+    
+class valueGoat(autoGoat):
+    def softmax(self, x):
+        x = np.array(x)
+        vector = np.exp(x)/np.sum(np.exp(x))
+        if np.isnan(vector).any():
+            print(x)
+            vector = np.ones(x.shape)
+            vector = vector/len(vector)
+        return vector
+
     def valuefunc(self, matrix):
         board = self.matrix2board(matrix)
         tigermobility = 0
@@ -332,104 +434,6 @@ class neuralGoat(Player):
 
         return 1/(tigermobility+1e-2) - 5*(2+captured+unsafe)**2 + 3*(3+positionadv)**1.5
 
-    def layerpredict(self, X, u):
-            w = u.copy()
-            a = np.zeros((X @ w[0]).shape)
-            n = w[1].shape[0]
-            w[1]= w[1].reshape(1,n)
-            a = X@ w[0] + w[1]
-            a = np.where(a>0, a, 0)
-            return a
-
-    def nnvaluefunc(self, matrix):
-        funmatrix = copy.deepcopy(matrix)
-        if self.game.state.phase == 'place':
-            lastrow = np.array([1,0,0]).reshape(1,3)
-        else:
-            lastrow = np.array([0,1,0]).reshape(1,3)
-        captured = 0
-        for goat in self.pieces:
-            if goat.state == 'Captured':
-                captured = captured + 1
-        lastrow[0,2] = captured
-
-        X = np.vstack((funmatrix, lastrow)).ravel()
-        w0 = self.W[0]
-        w1 = self.W[1]
-        w2 = self.W[2]
-        w3 = self.W[3]
-
-        myoutput = self.layerpredict(
-            self.layerpredict(
-                self.layerpredict(X, w0),w1),w2) @ w3[0]+w3[1]
-        return myoutput[0,0]
-        
-        
-    def move2matrix(self, matrix, move):
-        nextmatrix = copy.deepcopy(matrix)
-        movefunc, piece, address = move
-        empty = np.array([1,0,0])
-        goat = np.array([0,1,0])
-        tiger = np.array([0,0,1])
-        
-        if movefunc == piece.place:
-            row = self.board.addresslist.index(address)
-            nextmatrix[row,:] = goat
-        elif movefunc == piece.move:
-            row1 = self.board.addresslist.index(piece.position.address)
-            row2 = self.board.addresslist.index(address)
-            nextmatrix[row1,:] = empty
-            nextmatrix[row2,:] = goat
-
-        return nextmatrix
-
-    def softmax(self, x):
-        x = np.array(x)/10
-        vector = np.exp(x)/np.sum(np.exp(x))
-        if np.isnan(vector).any():
-            print(x)
-            vector = np.ones(x.shape)
-            vector = vector/len(vector)
-        return vector
-    
-    def predict(self):
-        currentmatrix = copy.deepcopy(self.game.state.board2matrix(self.board))
-
-        if self.game.state.phase == 'place':
-            for goat in self.pieces:
-                if goat.state == 'Unused':
-                    allmoves = goat.allmoves()
-        elif self.game.state.phase == 'move':
-            allmoves = []
-            for goat in self.pieces:
-                allmoves.extend(goat.allmoves())
-        print('All moves obtained! Possible moves: ', len(allmoves))
-        values = []
-        if len(allmoves) > 50:
-            allmoves = allmoves[:50]
-            
-        for move in allmoves:
-            nextmatrix = self.move2matrix(currentmatrix, move)
-            values.append(self.nnvaluefunc(nextmatrix))
-
-        moveind = npr.choice(np.arange(len(allmoves)), p=self.softmax(values))
-        movefun = allmoves[moveind]
-        if self.game.state.phase == 'place':
-            print('Chosen move: ', movefun[1].position, movefun[2])
-        else:
-            print('Chosen move: ', movefun[1].position.address, movefun[2])
-        return movefun
-
-class valueGoat(neuralGoat):
-    def softmax(self, x):
-        x = np.array(x)
-        vector = np.exp(x)/np.sum(np.exp(x))
-        if np.isnan(vector).any():
-            print(x)
-            vector = np.ones(x.shape)
-            vector = vector/len(vector)
-        return vector
-
     def predict(self):
         currentmatrix = copy.deepcopy(self.game.state.board2matrix(self.board))
 
@@ -457,7 +461,9 @@ class valueGoat(neuralGoat):
         else:
             print('Chosen move: ', movefun[1].position.address, movefun[2])
         return movefun
-        
+
+
+
 class Game():
     '''This class performs the logic associated with the game: determining whose turn, who won (if any), passing on inputs (if any), making the moves, and keeping track of the state of the game.'''
     class State():
@@ -1320,6 +1326,6 @@ if __name__ == '__main__':
     boardone = Board(graphics = True)
     gameone.attachboard(boardone)
     tiger = greedyTiger(gameone)
-    goat = greedyGoat(gameone)
+    goat = valueGoat(gameone)
     gameone.addplayers(tiger, goat)
     gameone.gamelogic()
